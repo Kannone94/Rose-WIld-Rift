@@ -4,7 +4,11 @@ Bot automatico per la gestione dell'orto (farm) in League of Legends Wild Rift t
 
 ## ⚠️ Disclaimer
 
-Questo script interagisce con API ufficiali di Riot Games. L'uso di questo tool potrebbe violare i Termini di Servizio di League of Legends. Usalo a tuo rischio e pericolo.
+Questo script interagisce con API ufficiali di Riot Games. 
+
+L'uso di questo tool potrebbe violare i Termini di Servizio di League of Legends. 
+
+Usalo a tuo rischio e pericolo.
 
 ## Prerequisiti
 
