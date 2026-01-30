@@ -5,8 +5,10 @@ from urllib.parse import unquote
 from dotenv import load_dotenv
 import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+import api
 
 load_dotenv()
+global PROXY_ENABLED, PROXY_HTTP, PROXY_HTTPS
 PROXY_ENABLED = os.environ.get("proxy", "False").lower() == "true"
 if PROXY_ENABLED:
     PROXY_HTTP = f"http://{os.environ.get('PROXY_HOST', '127.0.0.1')}:{os.environ.get('PROXY_PORT', '8080')}"
@@ -25,43 +27,6 @@ FLOWER_SEEDS = {
     "11": "2000011",
     "12": "2000012"
 }
-
-
-def get_garden_info(session) -> None:
-    url = "https://eu.api.h5.wildrift.leagueoflegends.com/5c/crystalrose/pub/farm?a=garden"
-    if PROXY_ENABLED:
-        response = session.post(url, files={None: (None, "")}, proxies={"http": PROXY_HTTP, "https": PROXY_HTTPS}, verify=False)
-    else:
-        response = session.post(url, files={None: (None, "")})
-    info = response.json().get("jData", {}).get("gardenInfo")
-    return info
-
-
-def plant_seed(session, seed_type, land_index) -> None:
-    url = "https://eu.api.h5.wildrift.leagueoflegends.com/5c/crystalrose/pub/farm?a=plant"
-    payload = {"landIndex": land_index, "cropId": seed_type}
-    #multipart/form-data
-    if PROXY_ENABLED:
-        response = session.post(url, data=payload, proxies={"http": PROXY_HTTP, "https": PROXY_HTTPS}, verify=False)
-    else:
-        response = session.post(url, data=payload)
-    json_response = response.json()
-    if json_response.get("ret") != 0:
-        print(f"{json_response.get('msg')} on land {land_index} while planting")
-    return response.json()
-
-def harvest_crop(session, land_index) -> None:
-    url = "https://eu.api.h5.wildrift.leagueoflegends.com/5c/crystalrose/pub/farm?a=harvest"
-    payload = {"landIndexs": land_index}
-    #multipart/form-data
-    if PROXY_ENABLED:
-        response = session.post(url, data=payload, proxies={"http": PROXY_HTTP, "https": PROXY_HTTPS}, verify=False)
-    else:
-        response = session.post(url, data=payload)
-    json_response = response.json()
-    if json_response.get("ret") != 0:
-        print(f"{json_response.get('msg')} on land {land_index} while harvesting")
-    return json_response
 
 def refresh_session(session):
     session.headers.pop("Origin", None)
@@ -130,7 +95,7 @@ def is_harvestable(info, id):
             current_time = int(time.time())
             #print(f"Land {id} - Plant time: {plant_time}, Grow time: {grow_time}, Sum: {sum}, Current time: {current_time}")
             if plant_time + grow_time <= current_time:
-                print(f"Land {id} is ready to harvest ({current_time} >= {sum})")
+                #print(f"Land {id} is ready to harvest ({current_time} >= {sum})")
                 return True        
     return False
 
@@ -147,22 +112,9 @@ def is_waterable(info, id):
             last_water = int(land.get("wateringTime"))
             next_water = last_water + 1200  # 12 minutes (gameConfig farmEnterWaterDeficitCountdown value)
             if next_water <= now:
-                print(f"Land {id} is ready to water (now: {now} >= water: {land.get('wateringTime')})")
+                #print(f"Land {id} is ready to water (now: {now} >= water: {land.get('wateringTime')})")
                 return True        
     return False
-
-def water_plants(session, land_index) -> None:
-    url = "https://eu.api.h5.wildrift.leagueoflegends.com/5c/crystalrose/pub/farm?a=water"
-    payload = {"landIndex": land_index}
-    #multipart/form-data
-    if PROXY_ENABLED:
-        response = session.post(url, data=payload, proxies={"http": PROXY_HTTP, "https": PROXY_HTTPS}, verify=False)
-    else:
-        response = session.post(url, data=payload)
-    json_response = response.json()
-    if json_response.get("ret") != 0:
-        print(f"{json_response.get('msg')} on land {land_index} while watering")
-    return json_response
 
 def check_session_time(session_expiry):
     # URL decode the session_expiry string first
@@ -174,7 +126,7 @@ def check_session_time(session_expiry):
         return False
     return True
 
-def print_menu():
+def print_farm_menu():
     print("=== Wild Rift Crystal Rose Farm Bot ===")
     print("""1. Input the flower corresponding number to plant:
     1) Skyglow Tulip
@@ -192,8 +144,8 @@ def print_menu():
 2. Ctrl+C to stop the bot.
 """)
 
-if __name__ == "__main__":
-    print_menu()
+def farm_bot(this_session, session_expiry):
+    print_farm_menu()
     seed_index = input("[+] Insert seed to plant: (default is SEED_ID from .env or Fire Iris)")
     if seed_index.strip() == "":
         seed_ID = os.environ.get("SEED_ID", "2000005")
@@ -203,24 +155,64 @@ if __name__ == "__main__":
     else:
         seed_ID = FLOWER_SEEDS[seed_index]
     print(f"[+] Started bot")
-    session_expiry = os.environ.get("SESSION_EXPIRY")
-    this_session = prepare_session(session_expiry)
+
 
 
     while True:
         if not check_session_time(session_expiry):
             this_session = refresh_session(this_session)
             session_expiry = next((c.value for c in this_session.cookies if c.name == "__Secure-session_expiry"), None)
-        gardenInfo = get_garden_info(this_session)
+        gardenInfo = api.get_garden_info(this_session)
         just_planted = False
         for land_index in range(1, 7):
             if is_harvestable(gardenInfo, land_index):
-                harvest_crop(this_session, land_index)
+                api.harvest_crop(this_session, land_index, proxy_enabled=PROXY_ENABLED, http_proxy=PROXY_HTTP if PROXY_ENABLED else None, https_proxy=PROXY_HTTPS if PROXY_ENABLED else None)
             if is_plantable(gardenInfo, land_index):
-                plant_seed(this_session, seed_ID, land_index)
+                api.buy_seed(this_session, seed_ID, 1, proxy_enabled=PROXY_ENABLED, http_proxy=PROXY_HTTP if PROXY_ENABLED else None, https_proxy=PROXY_HTTPS if PROXY_ENABLED else None)
+                api.plant_seed(this_session, seed_ID, land_index, proxy_enabled=PROXY_ENABLED, http_proxy=PROXY_HTTP if PROXY_ENABLED else None, https_proxy=PROXY_HTTPS if PROXY_ENABLED else None)
                 just_planted = True
             if is_waterable(gardenInfo, land_index) and not just_planted:
-                water_plants(this_session, land_index)
+                api.water_plants(this_session, land_index, proxy_enabled=PROXY_ENABLED, http_proxy=PROXY_HTTP if PROXY_ENABLED else None, https_proxy=PROXY_HTTPS if PROXY_ENABLED else None)
         time.sleep(60)  # Wait for 1 minutes before next cycle
 
+def cheat_loop(this_session, session_expiry, gold_target=30000) -> None:
+    seed_ID = "2000001"
+    gained_gold = 0
+    while gained_gold < gold_target:
+        if not check_session_time(session_expiry):
+            this_session = refresh_session(this_session)
+            session_expiry = next((c.value for c in this_session.cookies if c.name == "__Secure-session_expiry"), None)
+        api.buy_seed(this_session, seed_ID, proxy_enabled=PROXY_ENABLED, http_proxy=PROXY_HTTP if PROXY_ENABLED else None, https_proxy=PROXY_HTTPS if PROXY_ENABLED else None)
+        for land_index in range(1, 7):
+            api.plant_seed(this_session, seed_ID, land_index, proxy_enabled=PROXY_ENABLED, http_proxy=PROXY_HTTP if PROXY_ENABLED else None, https_proxy=PROXY_HTTPS if PROXY_ENABLED else None)
+            api.remove_plant(this_session, land_index, proxy_enabled=PROXY_ENABLED, http_proxy=PROXY_HTTP if PROXY_ENABLED else None, https_proxy=PROXY_HTTPS if PROXY_ENABLED else None)
+        quest_data = api.redeem_quest(this_session, proxy_enabled=PROXY_ENABLED, http_proxy=PROXY_HTTP if PROXY_ENABLED else None, https_proxy=PROXY_HTTPS if PROXY_ENABLED else None).get("jData", {})
+        for reward in quest_data.get("rewards", []):
+            if int(reward.get("rewardId")) == 1000001:  # Gold
+                gained_gold += int(reward.get("rewardAmount", 0))
+                #print(f"Gained {reward.get('rewardAmount', 0)} gold. Total: {gained_gold}/{gold_target}")
+    print(f"Target of {gold_target} gold reached. Total gained gold: {gained_gold}")
+
+def main_menu():
+    print("=== Wild Rift Crystal Rose Main Menu ===")
+    print("1. Farm Bot")
+    print("2. Cheat Gold Bot")
+    print("3. exit")
+    while True:
+        choice = input("[+] Select an option (1-3): ")
+        if choice in ["1", "2", "3"]:
+            break
+        else:
+            print("Invalid choice. Please select 1, 2, or 3.")
+    return choice
+
+if __name__ == "__main__":
+    session_expiry = os.environ.get("SESSION_EXPIRY")
+    this_session = prepare_session(session_expiry)
+    choice = main_menu()
+    if choice == "1":
+        farm_bot(this_session, session_expiry)
+    elif choice == "2":
+        gold_target = int(os.environ.get("GOLD_TARGET", "30000"))
+        cheat_loop(this_session, session_expiry, gold_target)
 
